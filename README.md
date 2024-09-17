@@ -45,41 +45,46 @@ func (r *MyRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
         return ctrl.Result{}, err
     }
 
-    if record.Status.Conditions.AnyWithStatus(konditions.ConditionError) {
+    if record.Conditions().AnyWithStatus(konditions.ConditionError) {
         // The record has failed, do not touch the record
         return ctrl.Result{}, nil
     }
 
-    if !record.Status.Conditions.TypeHasStatus(VolumeFinder, konditions.ConditionCompleted) {
+    lock := konditions.NewLock(record, r.Client, VolumeFinder)
+    err := lock.Execute(ctx, func(condition konditions.Condition) error {
         // Volume Finder need to be reconciled.
-        return r.ReconcileVolume(ctx, record)
-    }
+        err := r.ReconcileVolume(ctx, record, &condition)
+        if err != nil {
+            return err
+        }
+
+        record.Conditions().SetCondition(condition)
+        return ctrl.Result{}, r.Status().Update(ctx, record)
+    })
 
     // ...
+
+    return ctrl.Result{}, err
 }
 
-func (r *MyRecordReconciler) ReconcileVolume(ctx context.Context, record *MyRecord) (ctrl.Result, error) {
-    // FindOrInitializeFor returns a copy so we can make changes to the condition as needed.
-    condition := record.Status.Conditions.FindOrInitializeFor(VolumeFinder)
-    
+func (r *MyRecordReconciler) ReconcileVolume(ctx context.Context, record *MyRecord, condition *konditions.Condition) error {
     switch condition.Status {
     case konditions.ConditionInitialized:
         // ... Start working on the Volume Finder condition
 
         if err != nil {
-            condition.Status = konditions.ConditionError
-            condition.Reason = err.Error()
-
-            // Since we're working with a copy, the condition needs to be added back to the
-            // set. Then, an update will need to occur to persist the changes.
-            record.Status.Conditions.SetCondition(condition)
+            return err
         }
+
+        condition.Status = konditions.ConditionCreated
+        condition.Reason = "Volume Found"
+        return nil
 
     case konditions.ConditionCreated:
         // ... Volume was created, let's configure it for our record
     }
 
-    return ctrl.Result{}, r.Status().Update(ctx, record)
+    return nil
 }
 
 ```
