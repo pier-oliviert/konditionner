@@ -17,12 +17,12 @@ func TestFindOrInitializeFor(t *testing.T) {
 		t.Error("Expected a new condition to have the status set to Initialized")
 	}
 
-	result := conditions.SetCondition(Condition{
+	err := conditions.SetCondition(Condition{
 		Type:   ConditionType("Existing"),
 		Status: ConditionCompleted,
 	})
 
-	if result == false {
+	if err != nil {
 		t.Error("Expected SetCondition to add the condition")
 	}
 

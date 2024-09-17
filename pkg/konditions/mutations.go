@@ -1,10 +1,14 @@
 package konditions
 
 import (
+	"errors"
+	"slices"
 	"time"
 
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var NotInitializedConditionsErr = errors.New("Conditions is not initialized")
 
 // Set the given condition into the Conditions.
 // The return value indicates whether the condition was changed in the stack or not.
@@ -22,36 +26,32 @@ import (
 //	if err := reconciler.Status().Update(&myResource); err != nil {
 //		// ... deal with k8s error ...
 //	}
-func (c *Conditions) SetCondition(newCondition Condition) (changed bool) {
+func (c *Conditions) SetCondition(newCondition Condition) error {
 	if c == nil {
-		return false
+		return NotInitializedConditionsErr
 	}
 
-	existingCondition := c.FindType(newCondition.Type)
-	if existingCondition == nil {
-		if newCondition.LastTransitionTime.IsZero() {
-			newCondition.LastTransitionTime = meta.NewTime(time.Now())
+	if newCondition.LastTransitionTime.IsZero() {
+		newCondition.LastTransitionTime = meta.NewTime(time.Now())
+	}
+
+	var condition *Condition
+	var index int
+	for i, _ := range *c {
+		existing := &((*c)[i])
+		if existing.Type == newCondition.Type {
+			condition = existing
+			index = i
 		}
+	}
+
+	if condition == nil {
 		*c = append(*c, newCondition)
-		return true
+		return nil
 	}
 
-	if existingCondition.Status != newCondition.Status {
-		existingCondition.Status = newCondition.Status
-		if !newCondition.LastTransitionTime.IsZero() {
-			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = meta.NewTime(time.Now())
-		}
-		changed = true
-	}
-
-	if existingCondition.Reason != newCondition.Reason {
-		existingCondition.Reason = newCondition.Reason
-		changed = true
-	}
-
-	return changed
+	*c = slices.Replace(*c, index, index+1, newCondition)
+	return nil
 }
 
 // Remove the conditionType from the conditions set.

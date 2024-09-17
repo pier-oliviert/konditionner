@@ -10,12 +10,12 @@ import (
 func TestSetConditionOnNil(t *testing.T) {
 	var conditions *Conditions
 
-	added := conditions.SetCondition(Condition{
+	err := conditions.SetCondition(Condition{
 		Type:   ConditionType("New Type"),
 		Status: ConditionTerminated,
 	})
 
-	if added {
+	if err == nil {
 		t.Error("Conditions not initialized yet, shouldn't be able to add values")
 	}
 }
@@ -27,12 +27,12 @@ func TestSetCondition(t *testing.T) {
 		conditions: Conditions{},
 	}
 
-	added := status.conditions.SetCondition(Condition{
+	err := status.conditions.SetCondition(Condition{
 		Type:   ConditionType("New Type"),
 		Status: ConditionTerminated,
 	})
 
-	if !added {
+	if err != nil {
 		t.Error("The condition should have been added now that the pointer is set")
 	}
 
@@ -51,6 +51,48 @@ func TestSetCondition(t *testing.T) {
 
 	if condition.LastTransitionTime.IsZero() {
 		t.Error("Expected LastTransitionTime to be set")
+	}
+
+	// Add 2 more conditions for the next test step
+	status.conditions.SetCondition(Condition{
+		Type:   ConditionType("ToBeReplaced"),
+		Status: ConditionTerminated,
+	})
+
+	status.conditions.SetCondition(Condition{
+		Type:   ConditionType("3rd Type"),
+		Status: ConditionTerminated,
+	})
+
+	if len(status.conditions) != 3 {
+		t.Error("Expected 3 conditions")
+	}
+
+	status.conditions.SetCondition(Condition{
+		Type:   ConditionType("ToBeReplaced"),
+		Status: ConditionCompleted,
+		Reason: "Replaced!",
+	})
+
+	found := status.conditions.FindType(ConditionType("ToBeReplaced"))
+	if found.Status != ConditionCompleted {
+		t.Error("Expected condition to be completed")
+	}
+
+	if found.Reason != "Replaced!" {
+		t.Error("Expected condition to be replaced")
+	}
+
+	if len(status.conditions) != 3 {
+		t.Errorf("Expected 3 conditions, had %d", len(status.conditions))
+	}
+
+	if status.conditions.FindType(ConditionType("3rd Type")) == nil {
+		t.Error("Missing condition")
+	}
+
+	if status.conditions.FindType(ConditionType("New Type")) == nil {
+		t.Error("Missing condition")
 	}
 }
 
