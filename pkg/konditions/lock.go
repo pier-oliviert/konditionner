@@ -61,8 +61,8 @@ var LockNotReleasedErr = errors.New("Condition still locked after task executed.
 //		// No error on fetching, hit the cache, but the cache is stale
 //	}
 //
-//	lock := konditions.NewLock(res, ConditionType("Bucket"))
-//	lock.Execute(ctx, reconciler.Client, func(condition Condition) error {
+//	lock := konditions.NewLock(res, reconciler.Client, ConditionType("Bucket"))
+//	lock.Execute(ctx, func(condition Condition) error {
 //		bucket, err := createBucketForResource(ctx, &res)
 //		if err != nil {
 //			return err
@@ -81,6 +81,7 @@ var LockNotReleasedErr = errors.New("Condition still locked after task executed.
 //   - Locked
 //   - Created *or* Error
 type Lock struct {
+	client    client.Client
 	obj       ConditionalResource
 	condition Condition
 }
@@ -158,10 +159,15 @@ type ConditionalResource interface {
 //
 // The lock will hold a copy of the condition with ConditionType at the time
 // of its initialized.
-func NewLock(obj ConditionalResource, ct ConditionType) *Lock {
+//
+// The Client interface is usually the reconciler controller you are within.
+//
+//	lock := konditions.NewLock(res, reconciler.Client, ConditionType("Bucket"))
+func NewLock(obj ConditionalResource, c client.Client, ct ConditionType) *Lock {
 	condition := obj.Conditions().FindOrInitializeFor(ct)
 
 	return &Lock{
+		client:    c,
 		condition: condition,
 		obj:       obj,
 	}
@@ -184,7 +190,7 @@ func NewLock(obj ConditionalResource, ct ConditionType) *Lock {
 // If it were to happen, the condition will not be updated, the error can then be passed to
 // the reconciler so it retries the reconciliation loop.
 //
-//	if err := lock.Execute(ctx, client, task); err != nil {
+//	if err := lock.Execute(ctx, task); err != nil {
 //		return ctrl.Result{}, err
 //	}
 //
@@ -192,14 +198,14 @@ func NewLock(obj ConditionalResource, ct ConditionType) *Lock {
 // If the condition still has the status ConditionLocked when the task returns, the
 // Execute method will set the Condition to ConditionError with the Error
 // set to `LockNotReleasedErr`.
-func (l *Lock) Execute(ctx context.Context, c client.Client, task Task) error {
+func (l *Lock) Execute(ctx context.Context, task Task) error {
 	l.obj.Conditions().SetCondition(Condition{
 		Type:   l.condition.Type,
 		Status: ConditionLocked,
 		Reason: "Resource locked",
 	})
 
-	if err := c.Status().Update(ctx, l.obj); err != nil {
+	if err := l.client.Status().Update(ctx, l.obj); err != nil {
 		return err
 	}
 
@@ -217,7 +223,7 @@ func (l *Lock) Execute(ctx context.Context, c client.Client, task Task) error {
 		l.obj.Conditions().SetCondition(l.condition)
 	}
 
-	return c.Status().Update(ctx, l.obj)
+	return l.client.Status().Update(ctx, l.obj)
 }
 
 // Returns a copy of the condition for which the lock has been created
