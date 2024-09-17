@@ -2,9 +2,12 @@ package konditions
 
 import (
 	"context"
+	"errors"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var LockNotReleasedErr = errors.New("Condition still locked after task executed. The task needs to set the condition status before returning")
 
 // Lock is and advisory lock that can be used to make sure you have control over a condition
 // before running a task that would create external resources. Even though
@@ -78,7 +81,6 @@ import (
 //   - Locked
 //   - Created *or* Error
 type Lock struct {
-	patch     client.Patch
 	obj       ConditionalResource
 	condition Condition
 }
@@ -157,11 +159,9 @@ type ConditionalResource interface {
 // The lock will hold a copy of the condition with ConditionType at the time
 // of its initialized.
 func NewLock(obj ConditionalResource, ct ConditionType) *Lock {
-	patch := client.MergeFrom(obj)
 	condition := obj.Conditions().FindOrInitializeFor(ct)
 
 	return &Lock{
-		patch:     patch,
 		condition: condition,
 		obj:       obj,
 	}
@@ -178,8 +178,7 @@ func NewLock(obj ConditionalResource, ct ConditionType) *Lock {
 // will be set to the error.Error().
 //
 // It is up to the Task to set the condition to its final state with the appropriate reason.
-// Once the task has returned, the Lock will update the status' subresource of the custom resource,
-// using a Patch() call.
+// Once the task has returned, the Lock will update the status' subresource of the custom resource.
 //
 // If any error happens while communicating with the Kubernetes API, it will be returned.
 // If it were to happen, the condition will not be updated, the error can then be passed to
@@ -188,6 +187,11 @@ func NewLock(obj ConditionalResource, ct ConditionType) *Lock {
 //	if err := lock.Execute(ctx, client, task); err != nil {
 //		return ctrl.Result{}, err
 //	}
+//
+// It is *required* that the Task changes the status of the Condition to its final value.
+// If the condition still has the status ConditionLocked when the task returns, the
+// Execute method will set the Condition to ConditionError with the Error
+// set to `LockNotReleasedErr`.
 func (l *Lock) Execute(ctx context.Context, c client.Client, task Task) error {
 	l.obj.Conditions().SetCondition(Condition{
 		Type:   l.condition.Type,
@@ -195,7 +199,7 @@ func (l *Lock) Execute(ctx context.Context, c client.Client, task Task) error {
 		Reason: "Resource locked",
 	})
 
-	if err := c.Status().Patch(ctx, l.obj, l.patch); err != nil {
+	if err := c.Status().Update(ctx, l.obj); err != nil {
 		return err
 	}
 
@@ -204,7 +208,33 @@ func (l *Lock) Execute(ctx context.Context, c client.Client, task Task) error {
 	if err != nil {
 		l.condition.Status = ConditionError
 		l.condition.Reason = err.Error()
+		l.obj.Conditions().SetCondition(l.condition)
 	}
 
-	return c.Status().Patch(ctx, l.obj, l.patch)
+	if c := l.obj.Conditions().FindType(l.condition.Type); c.Status == ConditionLocked {
+		l.condition.Status = ConditionError
+		l.condition.Reason = LockNotReleasedErr.Error()
+		l.obj.Conditions().SetCondition(l.condition)
+	}
+
+	return c.Status().Update(ctx, l.obj)
+}
+
+// Returns a copy of the condition for which the lock has been created
+//
+// This is a helper method to allow creator of locks to easily retrieve
+// the condition outside the execution loop. This can be useful if the lock
+// is created but you need to check something about the condition before
+// calling `Execute`
+// Returns a copy of the condition for which the lock has been created
+//
+// This is a helper method to allow creator of locks to easily retrieve
+// the condition outside the execution loop. This can be useful if the lock
+// is created but you need to check something about the condition before
+// calling `Execute`.
+//
+// This method returns a copy of the condition at the time of the creation of the
+// lock.
+func (l *Lock) Condition() Condition {
+	return l.condition
 }
