@@ -1,7 +1,9 @@
 # Konditionner: Conditions for K8s Custom Resources
 [![Main](https://github.com/pier-oliviert/konditionner/actions/workflows/main.yaml/badge.svg)](https://github.com/pier-oliviert/konditionner/actions/workflows/main.yaml)
 
-This library exists to help manage conditions for people that builds Custom Resources Definitions(CRDs) for Kubernetes.
+This library exists to help manage conditions for people that builds Custom Resources Definitions(CRDs) for Kubernetes. Konditionner is built on the same idea as the utility package from [API Machinery](https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Condition) but with extensibility in mind.
+
+The library is a great addition to your custom resources if you're operator uses [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
 
 ## Features
 
