@@ -3,7 +3,7 @@
 
 This library exists to help manage conditions for people that builds Custom Resources Definitions(CRDs) for Kubernetes. Konditionner is built on the same idea as the utility package from [API Machinery](https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Condition) but with extensibility in mind.
 
-The library is a great addition to your custom resources if you're operator uses [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
+The library is a great addition to your custom resources if your operator uses [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
 
 ## Features
 
