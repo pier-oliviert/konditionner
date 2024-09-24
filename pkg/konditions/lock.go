@@ -194,11 +194,18 @@ func NewLock(obj ConditionalResource, c client.Client, ct ConditionType) *Lock {
 //		return ctrl.Result{}, err
 //	}
 //
+// The Execution loop will always return Kubernetes API error first as they surround the call to the
+// Task. So, if the Task returns an error, but updating the condition to the K8s API server also
+// returns an error, the K8s error will be returned. It is possible in the future errors
+// are wrapped, or a slice of error is returned, but either options also bring
+// a bunch of pros/cons to consider and at this time, I (P-O) just don't know which direction
+// is the more user friendly.
+//
 // It is *required* that the Task changes the status of the Condition to its final value.
 // If the condition still has the status ConditionLocked when the task returns, the
 // Execute method will set the Condition to ConditionError with the Error
 // set to `LockNotReleasedErr`.
-func (l *Lock) Execute(ctx context.Context, task Task) error {
+func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 	l.obj.Conditions().SetCondition(Condition{
 		Type:   l.condition.Type,
 		Status: ConditionLocked,
@@ -209,7 +216,7 @@ func (l *Lock) Execute(ctx context.Context, task Task) error {
 		return err
 	}
 
-	err := task(l.condition)
+	err = task(l.condition)
 
 	if err != nil {
 		l.condition.Status = ConditionError
@@ -221,9 +228,14 @@ func (l *Lock) Execute(ctx context.Context, task Task) error {
 		l.condition.Status = ConditionError
 		l.condition.Reason = LockNotReleasedErr.Error()
 		l.obj.Conditions().SetCondition(l.condition)
+		err = LockNotReleasedErr
 	}
 
-	return l.client.Status().Update(ctx, l.obj)
+	if updateErr := l.client.Status().Update(ctx, l.obj); updateErr != nil {
+		return updateErr
+	}
+
+	return err
 }
 
 // Returns a copy of the condition for which the lock has been created
