@@ -7,7 +7,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var LockNotReleasedErr = errors.New("Condition still locked after task executed. The task needs to set the condition status before returning")
+var LockNotReleasedErr = errors.New("Condition's lock was not released")
 
 // Lock is and advisory lock that can be used to make sure you have control over a condition
 // before running a task that would create external resources. Even though
@@ -206,15 +206,22 @@ func NewLock(obj ConditionalResource, c client.Client, ct ConditionType) *Lock {
 // Execute method will set the Condition to ConditionError with the Error
 // set to `LockNotReleasedErr`.
 func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
+	if l.condition.Status == ConditionLocked {
+		return LockNotReleasedErr
+	}
+
+	patch := client.StrategicMergeFrom(l.obj)
+
 	l.obj.Conditions().SetCondition(Condition{
 		Type:   l.condition.Type,
 		Status: ConditionLocked,
 		Reason: "Resource locked",
 	})
 
-	if err := l.client.Status().Update(ctx, l.obj); err != nil {
+	if err := l.client.Status().Patch(ctx, l.obj, patch); err != nil {
 		return err
 	}
+	patch = client.StrategicMergeFrom(l.obj)
 
 	err = task(l.condition)
 
@@ -224,6 +231,8 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 		l.obj.Conditions().SetCondition(l.condition)
 	}
 
+	l.obj.Conditions().SetCondition(l.condition)
+
 	if c := l.obj.Conditions().FindType(l.condition.Type); c.Status == ConditionLocked {
 		l.condition.Status = ConditionError
 		l.condition.Reason = LockNotReleasedErr.Error()
@@ -231,7 +240,7 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 		err = LockNotReleasedErr
 	}
 
-	if updateErr := l.client.Status().Update(ctx, l.obj); updateErr != nil {
+	if updateErr := l.client.Status().Patch(ctx, l.obj, patch); updateErr != nil {
 		return updateErr
 	}
 
