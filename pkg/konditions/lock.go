@@ -210,18 +210,15 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 		return LockNotReleasedErr
 	}
 
-	patch := client.MergeFrom(l.obj)
-
 	l.obj.Conditions().SetCondition(Condition{
 		Type:   l.condition.Type,
 		Status: ConditionLocked,
 		Reason: "Resource locked",
 	})
 
-	if err := l.client.Status().Patch(ctx, l.obj, patch); err != nil {
+	if err := l.client.Status().Update(ctx, l.obj); err != nil {
 		return err
 	}
-	patch = client.MergeFrom(l.obj)
 
 	err = task(l.condition)
 
@@ -240,7 +237,7 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 		err = LockNotReleasedErr
 	}
 
-	if updateErr := l.client.Status().Patch(ctx, l.obj, patch); updateErr != nil {
+	if updateErr := l.client.Status().Update(ctx, l.obj); updateErr != nil {
 		return updateErr
 	}
 
