@@ -210,7 +210,7 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 		return LockNotReleasedErr
 	}
 
-	patch := client.StrategicMergeFrom(l.obj)
+	patch := client.MergeFrom(l.obj)
 
 	l.obj.Conditions().SetCondition(Condition{
 		Type:   l.condition.Type,
@@ -221,7 +221,7 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 	if err := l.client.Status().Patch(ctx, l.obj, patch); err != nil {
 		return err
 	}
-	patch = client.StrategicMergeFrom(l.obj)
+	patch = client.MergeFrom(l.obj)
 
 	err = task(l.condition)
 
