@@ -62,7 +62,7 @@ var LockNotReleasedErr = errors.New("Condition's lock was not released")
 //	}
 //
 //	lock := konditions.NewLock(res, reconciler.Client, ConditionType("Bucket"))
-//	lock.Execute(ctx, func(condition Condition) error {
+//	lock.Execute(ctx, func(condition Condition) (Condition, error) {
 //		bucket, err := createBucketForResource(ctx, &res)
 //		if err != nil {
 //			return err
@@ -71,9 +71,8 @@ var LockNotReleasedErr = errors.New("Condition's lock was not released")
 //		res.Status.BucketName = bucket.Name
 //	  condition.Status = konditions.ConditionCreated
 //		condition.Reason = "Bucket Created"
-//		res.Status.Conditions.SetCondition(condition)
 //
-//		return reconciler.Status().Update(ctx, &res)
+//		return condition, reconciler.Status().Update(ctx, &res)
 //	})
 //
 // The condition with type "Bucket" will have its Status go through a few stages:
@@ -90,8 +89,12 @@ type Lock struct {
 // The condition is a copy of the condition *before* the lock was obtained. This is useful
 // as the status can be useful to make a decision.
 //
+// The condition can be updated from within the Task as it is required that the user
+// returns the condition at the end. If the error is `nil`, the condition returned
+// will replace the condition that existed before the Task ran.
+//
 //	lock := konditions.NewLock(res, ConditionType("Bucket"))
-//	lock.Execute(ctx, reconciler.Client, func(condition Condition) error {
+//	lock.Execute(ctx, reconciler.Client, func(condition Condition) (Condition, error) {
 //		// Even if the condition status is currently `ConditionLocked`, the condition passed
 //		// will be a copy with the Status prior to locking it.
 //		// In this example, the condition didn't exist, and as such, `FindOrInitializeFor`
@@ -103,9 +106,8 @@ type Lock struct {
 //			}
 //			condition.Status = ConditionTerminated
 //			condition.Reason = "Bucket deleted"
-//			res.Status.Conditions.SetCondition(condition)
 //
-//			return reconciler.Status().Update(ctx, &res)
+//			return condition, reconciler.Status().Update(ctx, &res)
 //		}
 //
 //		if condition.Status == ConditionInitialized {
@@ -117,12 +119,11 @@ type Lock struct {
 //			res.Status.BucketName = bucket.Name
 //			condition.Status = konditions.ConditionCreated
 //			condition.Reason = "Bucket Created"
-//			res.Status.Conditions.SetCondition(condition)
 //
-//			return reconciler.Status().Update(ctx, &res)
+//			return condition, reconciler.Status().Update(ctx, &res)
 //		}
 //	})
-type Task func(Condition) error
+type Task func(Condition) (Condition, error)
 
 // ConditionObject is an interface for your CRD with the added method Conditions() defined by the
 // user. This interface exists to simplify the usage of Lock and can be implemented by adding the conditions getter
@@ -176,15 +177,16 @@ func NewLock(obj ConditionalResource, c client.Client, ct ConditionType) *Lock {
 // Execute the task after successfully setting the condition to ConditionLocked.
 // Calling Execute will attempt to change the condition's Status to ConditionLocked.
 // If successful, it will then call Task(condition) where the condition is a copy of
-// the condition when the Lock was initialized, this means that even if the condition is "locked",
+// the condition before the Lock was initialized, this means that even if the condition is "locked",
 // the condition passed will have the status *before* it was locked, giving the opportunity to
-// the task to analyze what the sItus of the condition was.
+// the task to analyze what the status of the condition was.
 //
 // If the task returns an error, the condition will be updated to ConditionError and the Reason
 // will be set to the error.Error().
 //
-// It is up to the Task to set the condition to its final state with the appropriate reason.
-// Once the task has returned, the Lock will update the status' subresource of the custom resource.
+// It is up to the Task to set the condition to its final state with the appropriate reason. By
+// returning the condition, the Lock will use the returned condition and the Lock will update the
+// status' subresource of the custom resource.
 //
 // If any error happens while communicating with the Kubernetes API, it will be returned.
 // If it were to happen, the condition will not be updated, the error can then be passed to
@@ -220,7 +222,7 @@ func (l *Lock) Execute(ctx context.Context, task Task) (err error) {
 		return err
 	}
 
-	err = task(l.condition)
+	l.condition, err = task(l.condition)
 
 	if err != nil {
 		l.condition.Status = ConditionError
