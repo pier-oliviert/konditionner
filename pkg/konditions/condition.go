@@ -133,6 +133,18 @@ type Condition struct {
 	Reason string `json:"reason,omitempty" protobuf:"bytes,5,opt,name=reason"`
 }
 
+// Helper function that returns true if the Status of the condition is equal
+// to one of the statuses provided.
+func (c Condition) StatusIsOneOf(statuses ...ConditionStatus) bool {
+	for _, s := range statuses {
+		if c.Status == s {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Kubernetes requires any struct that can be stored in a Custom Resource Definition(CRD) to
 // implement these DeepCopy functions. They aren't interfaces as the arguments and return values
 // are explicitly typed. Usually, when using tools like kube-builder/controller-runtime, those functions
